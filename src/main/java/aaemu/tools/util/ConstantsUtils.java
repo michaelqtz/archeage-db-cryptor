@@ -16,7 +16,7 @@ public class ConstantsUtils {
     public static final byte[] ZIP_BITFLAG = toByteArray("0000");
     public static final byte[] ZIP_COMPRESSION_METHOD = toByteArray("0800");
     public static final int ZIP_OVERWRITE_HEADER_SIZE = ZIP_HEADER.length + ZIP_VERSION.length + ZIP_BITFLAG.length + ZIP_COMPRESSION_METHOD.length;
-    public static final byte[] GAME0PK_BYTES = toByteArray("67616D6530");
+    public static final byte[] GAME0_NAME_LFH = toByteArray("67616D6530");   // Local File Header
 
     public static final String ROOT_FOLDER = System.getProperty("user.dir");
     public static final String RSA_KEYS_FILE_NAME = "rsa_keys.txt";

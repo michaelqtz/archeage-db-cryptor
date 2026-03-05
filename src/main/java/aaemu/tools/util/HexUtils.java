@@ -31,6 +31,14 @@ public class HexUtils {
         return new BigInteger(reversed.toString(), 16);
     }
 
+    public static BigInteger toBigInt(byte[] bytes) {
+        byte[] reversed = new byte[bytes.length];
+        for (int i = 0; i < bytes.length; i++) {
+            reversed[i] = bytes[bytes.length - 1 - i];
+        }
+        return new BigInteger(1, reversed);
+    }
+
     public static String toHex(byte[] bytes) {
         return HEX_FORMAT.formatHex(bytes).toUpperCase();
     }

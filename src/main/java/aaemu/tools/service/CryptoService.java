@@ -1,5 +1,7 @@
 package aaemu.tools.service;
 
+import java.nio.ByteBuffer;
+
 import aaemu.tools.config.ConfigProperties;
 
 /**
@@ -7,11 +9,7 @@ import aaemu.tools.config.ConfigProperties;
  */
 public interface CryptoService {
 
-    byte[] decryptV2(ConfigProperties properties, byte[] encryptedData) throws Exception;
+    ByteBuffer decrypt(ConfigProperties properties) throws Exception;
 
-    byte[] encryptV2(ConfigProperties properties, byte[] decryptedData) throws Exception;
-
-    byte[] decryptV3(ConfigProperties properties, byte[] encryptedData) throws Exception;
-
-    byte[] encryptV3(ConfigProperties properties, byte[] decryptedData) throws Exception;
+    ByteBuffer encrypt(ConfigProperties properties) throws Exception;
 }

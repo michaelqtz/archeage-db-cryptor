@@ -2,6 +2,7 @@ package aaemu.tools.config;
 
 import static aaemu.tools.util.HexUtils.toBigInt;
 import static aaemu.tools.util.HexUtils.toInt;
+import static java.util.Objects.isNull;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -10,7 +11,10 @@ import java.util.List;
 import aaemu.tools.model.XLRandom;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 /**
  * @author Shannon
@@ -22,29 +26,40 @@ public class RsaStepConfig {
     private int parts;
     private int cLength;
     private int mLength;
-    private List<Integer> blocksPoses;
+    private int totalCipherDataLength;
+    private List<Integer> blocksOffsets;
+
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private String offsetConstant;
 
     @JsonCreator
     public RsaStepConfig(@JsonProperty("d") String dHex,
                          @JsonProperty("n") String nHex,
-                         @JsonProperty("offset_constant") String offset_constant,
+                         @JsonProperty("offset_constant") String offsetConstant,
                          @JsonProperty("parts") int parts,
                          @JsonProperty("c_length") String cLength,
                          @JsonProperty("m_length") String mLength) {
+
         this.d = toBigInt(dHex);
         this.n = toBigInt(nHex);
+        this.offsetConstant = offsetConstant;
         this.parts = parts;
         this.cLength = toInt(cLength);
         this.mLength = toInt(mLength);
 
-        this.blocksPoses = buildBlocksPoses(offset_constant, parts);
+        this.totalCipherDataLength = this.cLength * parts;
     }
 
-    public int getParts() {
-        return blocksPoses.size();
+    public List<Integer> getBlocksOffsets() {
+        if (isNull(blocksOffsets)) {
+            blocksOffsets = buildBlocksOffsets(offsetConstant, parts);
+        }
+
+        return blocksOffsets;
     }
 
-    private List<Integer> buildBlocksPoses(String constant, int parts) {
+    private List<Integer> buildBlocksOffsets(String constant, int parts) {
         List<Integer> blocksPos = new ArrayList<>(parts);
 
         XLRandom xlRandom = new XLRandom(constant);

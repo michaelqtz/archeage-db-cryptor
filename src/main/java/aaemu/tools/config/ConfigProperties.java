@@ -3,6 +3,7 @@ package aaemu.tools.config;
 import static aaemu.tools.enums.CipherVersion.UNKNOWN;
 import static aaemu.tools.enums.CipherVersion._2;
 import static aaemu.tools.enums.CipherVersion._3;
+import static aaemu.tools.enums.CipherVersion._4;
 
 import java.nio.file.Path;
 
@@ -13,7 +14,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Setter;
 
 /**
  * @author Shannon
@@ -29,7 +32,8 @@ public class ConfigProperties implements Comparable<ConfigProperties> {
     private CipherMode cipherMode;
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    private boolean aafree;
+    @Setter(AccessLevel.NONE)
+    private boolean pirate;
 
     @JsonIgnore
     private Path path;
@@ -37,6 +41,10 @@ public class ConfigProperties implements Comparable<ConfigProperties> {
     public CipherVersion getCipherVersion() {
         if (StringUtil.isNullOrEmpty(version)) {
             return UNKNOWN;
+        }
+
+        if (pirate) {
+            return _4;
         }
 
         String[] parts = version.split("\\.");

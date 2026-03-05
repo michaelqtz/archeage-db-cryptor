@@ -1,13 +1,15 @@
 package aaemu.tools.service.impl;
 
-import static aaemu.tools.util.ConstantsUtils.ZIP_BITFLAG;
-import static aaemu.tools.util.ConstantsUtils.ZIP_COMPRESSION_METHOD;
-import static aaemu.tools.util.ConstantsUtils.ZIP_HEADER;
-import static aaemu.tools.util.ConstantsUtils.ZIP_OVERWRITE_HEADER_SIZE;
-import static aaemu.tools.util.ConstantsUtils.ZIP_VERSION;
+import static aaemu.tools.util.ByteUtils.copyArray;
+import static aaemu.tools.util.ByteUtils.copyData;
+import static aaemu.tools.util.ByteUtils.readData;
+import static aaemu.tools.util.ByteUtils.writeData;
+import static aaemu.tools.util.ConstantsUtils.DB_SQLITE;
+import static aaemu.tools.util.ConstantsUtils.DB_ZIP;
 import static aaemu.tools.util.HexUtils.toBigInt;
 import static aaemu.tools.util.HexUtils.toByteArray;
 import static aaemu.tools.util.HexUtils.toHex;
+import static aaemu.tools.util.ZipUtils.overwriteZipHeader;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -18,8 +20,10 @@ import java.util.List;
 import aaemu.tools.config.AesStepConfig;
 import aaemu.tools.config.ConfigProperties;
 import aaemu.tools.config.RsaStepConfig;
+import aaemu.tools.enums.CipherVersion;
 import aaemu.tools.service.AesService;
 import aaemu.tools.service.CryptoService;
+import aaemu.tools.service.FileService;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -27,219 +31,214 @@ import lombok.RequiredArgsConstructor;
  */
 @RequiredArgsConstructor
 public class CryptoServiceImpl implements CryptoService {
+    private final FileService fileService;
     private final AesService aesService;
 
     @Override
-    public byte[] decryptV2(ConfigProperties properties, byte[] encryptedData) throws Exception {
-        byte[] bytes = decryptAesFirstStage(properties, encryptedData);
+    public ByteBuffer decrypt(ConfigProperties properties) throws Exception {
+        CipherVersion cipherVersion = properties.getCipherVersion();
+        ByteBuffer buffer = fileService.readFile(DB_SQLITE);
 
-        return decryptAesSecondStage(properties, bytes, 0);
+        switch (cipherVersion) {
+            case _2 -> decryptV2(properties, buffer);
+            case _3 -> decryptV3(properties, buffer);
+            case _4 -> decryptV4(properties, buffer);
+        }
+
+        return buffer;
     }
 
     @Override
-    public byte[] encryptV2(ConfigProperties properties, byte[] decryptedData) throws Exception {
-        byte[] bytes = encryptAesFirstStage(properties, decryptedData, 0);
+    public ByteBuffer encrypt(ConfigProperties properties) throws Exception {
+        CipherVersion cipherVersion = properties.getCipherVersion();
+        ByteBuffer buffer = fileService.readFile(DB_ZIP);
 
-        return encryptAesSecondStage(properties, bytes);
+        switch (cipherVersion) {
+            case _2 -> encryptV2(properties, buffer);
+            case _3 -> encryptV3(properties, buffer);
+            case _4 -> encryptV4(properties, buffer);
+        }
+
+        return buffer;
     }
 
-    @Override
-    public byte[] decryptV3(ConfigProperties properties, byte[] encryptedData) throws Exception {
-        byte[] bytes = decryptAesFirstStage(properties, encryptedData);
+    private void decryptV2(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        decryptAesFirstStage(properties, buffer);
+        decryptAesSecondStage(properties, buffer, 0);
+    }
 
+    private void encryptV2(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        encryptAesFirstStage(properties, buffer, 0);
+        encryptAesSecondStage(properties, buffer);
+    }
+
+    private void decryptV3(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        int totalCipherDataLength = properties.getRsa().getTotalCipherDataLength();
+
+        decryptAesFirstStage(properties, buffer);
+        decryptRsa(properties, buffer);
+        decryptAesSecondStage(properties, buffer, totalCipherDataLength);
+
+        overwriteZipHeader(buffer);
+    }
+
+    private void encryptV3(ConfigProperties properties, ByteBuffer buffer) {
+        // TODO
+    }
+
+    private void decryptV4(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        int totalCipherDataLength = properties.getRsa().getTotalCipherDataLength();
+
+        decryptAesFirstStage(properties, buffer);
+        swapBlocks(properties, buffer);
+        decryptAesSecondStage(properties, buffer, totalCipherDataLength);
+    }
+
+    private void encryptV4(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        int totalCipherDataLength = properties.getRsa().getTotalCipherDataLength();
+
+        encryptAesFirstStage(properties, buffer, totalCipherDataLength);
+        swapBlocks(properties, buffer);
+        encryptAesSecondStage(properties, buffer);
+    }
+
+    private void decryptRsa(ConfigProperties properties, ByteBuffer buffer) {
         RsaStepConfig rsa = properties.getRsa();
+
+        List<byte[]> rsaBlocks = readRsaBlocks(rsa, buffer);
+        List<byte[]> decryptedBlocks = decryptRsaBlocks(properties, rsaBlocks);
+        List<byte[]> originalBlocks = new ArrayList<>(decryptedBlocks.size());
+
+        List<Integer> blocksOffsets = rsa.getBlocksOffsets();
+
+        for (int i = 0; i < decryptedBlocks.size(); i++) {  // Write decrypted data to offset
+            byte[] block = decryptedBlocks.get(i);
+            buffer.position(blocksOffsets.get(i));
+
+            byte[] originalBlock = new byte[block.length];
+            copyData(buffer, originalBlock);
+            originalBlocks.add(originalBlock);
+
+            writeData(buffer, block);
+        }
+
+        int lengthDiff = rsa.getCLength() - rsa.getMLength();
+        int offset = buffer.capacity() - rsa.getTotalCipherDataLength();
+
+        for (byte[] originalBlock : originalBlocks) {       // Write original data instead of encrypted data
+            buffer.position(offset);
+
+            writeData(buffer, originalBlock);
+
+            offset = buffer.position() + lengthDiff;
+        }
+    }
+
+    private void swapBlocks(ConfigProperties properties, ByteBuffer buffer) {
+        RsaStepConfig rsa = properties.getRsa();
+
+        List<byte[]> rsaBlocks = readRsaBlocks(rsa, buffer);
+        List<byte[]> originalBlocks = new ArrayList<>(rsaBlocks.size());
+
+        int lengthDiff = rsa.getCLength() - rsa.getMLength();
+        List<Integer> blocksOffsets = rsa.getBlocksOffsets();
+
+        for (int i = 0; i < rsaBlocks.size(); i++) {        // Write decrypted data to offset
+            byte[] block = rsaBlocks.get(i);
+            buffer.position(blocksOffsets.get(i));
+
+            byte[] decryptedBlock = Arrays.copyOf(block, block.length - lengthDiff);
+
+            byte[] originalBlock = new byte[block.length - lengthDiff];
+            copyData(buffer, originalBlock);
+            originalBlocks.add(originalBlock);
+
+            writeData(buffer, decryptedBlock);
+        }
+
+        int offset = buffer.capacity() - rsa.getTotalCipherDataLength();
+
+        for (byte[] originalBlock : originalBlocks) {       // Write original data instead of encrypted data
+            buffer.position(offset);
+
+            writeData(buffer, originalBlock);
+
+            offset = buffer.position() + lengthDiff;
+        }
+    }
+
+    public void decryptAesFirstStage(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        AesStepConfig step = properties.getAesFirstStage();
+        int length = buffer.capacity();
+        int offset = calculateOffset(length);
+
+        aesService.decrypt(step, buffer, offset, 0);
+    }
+
+    public void decryptAesSecondStage(ConfigProperties properties, ByteBuffer buffer, int skipLength) throws Exception {
+        AesStepConfig step = properties.getAesSecondStage();
+        int offset = 0;
+
+        aesService.decrypt(step, buffer, offset, skipLength);
+    }
+
+    public void encryptAesFirstStage(ConfigProperties properties, ByteBuffer buffer, int skipLength) throws Exception {
+        AesStepConfig step = properties.getAesSecondStage();
+        int offset = 0;
+
+        aesService.encrypt(step, buffer, offset, skipLength);
+    }
+
+    public void encryptAesSecondStage(ConfigProperties properties, ByteBuffer buffer) throws Exception {
+        AesStepConfig step = properties.getAesFirstStage();
+        int length = buffer.capacity();
+        int offset = calculateOffset(length);
+
+        aesService.encrypt(step, buffer, offset, 0);
+    }
+
+    private static List<byte[]> readRsaBlocks(RsaStepConfig rsa, ByteBuffer buffer) {
         int cipherBlockSize = rsa.getCLength();
         int parts = rsa.getParts();
-        int totalCipherDataLength = cipherBlockSize * parts;
-        List<String> ciphers = readCiphers(cipherBlockSize, totalCipherDataLength, parts, bytes);
-        List<byte[]> decrypts = rsaDecrypt(ciphers, properties);
+        int totalCipherSize = rsa.getTotalCipherDataLength();
 
-        List<Integer> blocksPoses = rsa.getBlocksPoses();
-        int cipherOffset = bytes.length - totalCipherDataLength;
+        int offset = buffer.capacity() - totalCipherSize;
+        buffer.position(offset);
 
-        for (int i = 0; i < decrypts.size(); i++) {
-            byte[] mBytes = decrypts.get(i);
-            int mPos = blocksPoses.get(i);
-
-            System.arraycopy(mBytes, 0, bytes, mPos, mBytes.length);
-
-            cipherOffset = cipherOffset + cipherBlockSize;
-        }
-
-        bytes = decryptAesSecondStage(properties, bytes, totalCipherDataLength);
-
-        overwriteZipHeader(bytes);
-
-        return bytes;
-    }
-
-    @Override
-    public byte[] encryptV3(ConfigProperties properties, byte[] decryptedData) {
-        // TODO
-
-        return decryptedData;
-    }
-
-    public byte[] decryptAesFirstStage(ConfigProperties properties, byte[] encryptedData) throws Exception {
-        AesStepConfig step = properties.getAesFirstStage();
-        ByteBuffer dataBuffer = ByteBuffer.wrap(encryptedData);
-        int length = dataBuffer.capacity();
-        int offset = calculateOffset(length);
-
-        return aesDecrypt(step, dataBuffer, offset, 0);
-    }
-
-    public byte[] decryptAesSecondStage(ConfigProperties properties, byte[] encryptedData, int skipLength) throws Exception {
-        AesStepConfig step = properties.getAesSecondStage();
-        ByteBuffer dataBuffer = ByteBuffer.wrap(encryptedData);
-        int offset = 0;
-
-        return aesDecrypt(step, dataBuffer, offset, skipLength);
-    }
-
-    public byte[] encryptAesFirstStage(ConfigProperties properties, byte[] decryptedData, int skipLength) throws Exception {
-        AesStepConfig step = properties.getAesSecondStage();
-        final ByteBuffer dataBuffer = ByteBuffer.wrap(decryptedData);
-        int offset = 0;
-
-        return aesEncrypt(step, dataBuffer, offset, skipLength);
-    }
-
-    public byte[] encryptAesSecondStage(ConfigProperties properties, byte[] decryptedData) throws Exception {
-        AesStepConfig step = properties.getAesFirstStage();
-        final ByteBuffer dataBuffer = ByteBuffer.wrap(decryptedData);
-        int length = dataBuffer.capacity();
-        int offset = calculateOffset(length);
-
-        return aesEncrypt(step, dataBuffer, offset, 0);
-    }
-
-    private byte[] aesDecrypt(AesStepConfig step, ByteBuffer data, int offset, int skipLength) throws Exception {
-        aesService.setDecryptKey(step.getAesKey());
-
-        byte[] iv = step.getIv();
-        final byte[] tempBlock = new byte[16];
-        final int endOffset = data.capacity() - 15 - skipLength;
-
-        while (offset < endOffset) {
-            readData(data, offset, tempBlock);
-
-            byte[] decryptedBlock = aesService.decrypt(tempBlock, iv);
-
-            writeData(data, offset, decryptedBlock);
-
-            iv = decryptedBlock;
-            offset += 16;
-        }
-
-        return data.array();
-    }
-
-    private byte[] aesEncrypt(AesStepConfig step, ByteBuffer data, int offset, int skipLength) throws Exception {
-        aesService.setEncryptKey(step.getAesKey());
-
-        byte[] iv = step.getIv();
-        final byte[] tempBlock = new byte[16];
-        byte[] originalBlock;
-        byte[] encryptedBlock;
-        final int endOffset = data.capacity() - 15 - skipLength;
-
-        while (offset < endOffset) {
-            readData(data, offset, tempBlock);
-
-            originalBlock = Arrays.copyOf(tempBlock, tempBlock.length);
-
-            encryptedBlock = aesService.encrypt(tempBlock, iv);
-
-            writeData(data, offset, encryptedBlock);
-
-            iv = Arrays.copyOf(originalBlock, originalBlock.length);
-            offset += 16;
-        }
-
-        return data.array();
-    }
-
-    private static void readData(ByteBuffer dataBuffer, int offset, byte[] block) {
-        dataBuffer.get(offset, block, 0, block.length);
-    }
-
-    private static void writeData(ByteBuffer data, int offset, byte[] decryptedBlock) {
-        data.put(offset, decryptedBlock, 0, decryptedBlock.length);
-    }
-
-    private static List<String> readCiphers(int cipherBlockSize, int totalCipherDataLength, int parts, byte[] bytes) {
-        byte[] cipherBytes = new byte[cipherBlockSize];
-        int pos = bytes.length - totalCipherDataLength;
-        List<String> ciphers = new ArrayList<>(parts);
+        byte[] currentBlock = new byte[cipherBlockSize];
+        List<byte[]> ciphers = new ArrayList<>(parts);
 
         for (int i = 0; i < parts; i++) {
-            System.arraycopy(bytes, pos, cipherBytes, 0, cipherBlockSize);
-            ciphers.add(toHex(cipherBytes));
-            pos += cipherBlockSize;
+            readData(buffer, currentBlock);
+
+            ciphers.add(copyArray(currentBlock));
         }
 
         return ciphers;
     }
 
-    private static List<byte[]> rsaDecrypt(List<String> ciphers, ConfigProperties properties) {
+    private static List<byte[]> decryptRsaBlocks(ConfigProperties properties, List<byte[]> blocks) {
         RsaStepConfig rsa = properties.getRsa();
 
-        if (properties.isAafree()) {
-            return rsaDecryptFree(ciphers, rsa);
-        } else {
-            return rsaDecryptOfficial(ciphers, rsa);
-        }
-    }
+        List<byte[]> decryptedBytes = new ArrayList<>(blocks.size());
 
-    private static List<byte[]> rsaDecryptOfficial(List<String> ciphers, RsaStepConfig rsa) {
-        List<String> decrypts = new ArrayList<>(ciphers.size());
-        List<byte[]> mBytes = new ArrayList<>(ciphers.size());
-
-        for (String cHex : ciphers) {
-            BigInteger c = toBigInt(cHex);
+        for (byte[] cipherBytes : blocks) {
+            BigInteger c = toBigInt(cipherBytes);
             BigInteger d = rsa.getD();
             BigInteger n = rsa.getN();
 
             BigInteger m = c.modPow(d, n);
 
             String mHex = toHex(m);
-            decrypts.add(mHex);
+            byte[] bytes = toByteArray(mHex);
+
+            decryptedBytes.add(bytes);
         }
 
-        for (String decrypt : decrypts) {
-            mBytes.add(toByteArray(decrypt));
-        }
-
-        return mBytes;
-    }
-
-    private static List<byte[]> rsaDecryptFree(List<String> ciphers, RsaStepConfig rsa) {
-        List<byte[]> mBytes = new ArrayList<>(ciphers.size());
-        int mLength = rsa.getMLength();
-
-        for (String cHex : ciphers) {
-            cHex = cHex.substring(0, mLength * 2);
-            mBytes.add(toByteArray(cHex));
-        }
-
-        return mBytes;
+        return decryptedBytes;
     }
 
     private static int calculateOffset(int length) {
         return 16 - (length % 16);
-    }
-
-    private static void overwriteZipHeader(byte[] bytes) {
-        ByteBuffer zipHeaderBuffer = ByteBuffer.allocate(ZIP_OVERWRITE_HEADER_SIZE);
-
-        zipHeaderBuffer.put(ZIP_HEADER);
-        zipHeaderBuffer.put(ZIP_VERSION);
-        zipHeaderBuffer.put(ZIP_BITFLAG);
-        zipHeaderBuffer.put(ZIP_COMPRESSION_METHOD);
-
-        byte[] zipHeader = zipHeaderBuffer.array();
-
-        System.arraycopy(zipHeader, 0, bytes, 0, zipHeader.length);
     }
 }

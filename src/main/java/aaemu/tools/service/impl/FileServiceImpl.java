@@ -5,6 +5,7 @@ import static aaemu.tools.util.ConstantsUtils.CONFIG_PROPERTIES_FILE_NAME;
 import static aaemu.tools.util.ConstantsUtils.ROOT_FOLDER;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -52,8 +53,10 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    public byte[] readFile(String name) throws IOException {
-        return read(name);
+    public ByteBuffer readFile(String name) throws IOException {
+        byte[] bytes = read(name);
+
+        return ByteBuffer.wrap(bytes);
     }
 
     @Override
@@ -61,6 +64,11 @@ public class FileServiceImpl implements FileService {
         Path filePath = buildFilePath(name);
 
         return Files.readAllLines(filePath);
+    }
+
+    @Override
+    public void writeFile(String name, ByteBuffer buffer) throws IOException {
+        writeFile(name, buffer.array());
     }
 
     @Override

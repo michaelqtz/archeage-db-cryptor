@@ -1,6 +1,7 @@
 package aaemu.tools.service;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -16,9 +17,11 @@ public interface FileService {
 
     List<ConfigProperties> readConfigPropertiesList() throws IOException;
 
-    byte[] readFile(String name) throws IOException;
+    ByteBuffer readFile(String name) throws IOException;
 
     List<String> readAllLines(String name) throws IOException;
+
+    void writeFile(String name, ByteBuffer buffer) throws IOException;
 
     void writeFile(String name, byte[] bytes) throws IOException;
 

@@ -18,7 +18,10 @@ public class AesStepConfig {
     private byte[] iv;
 
     @JsonCreator
-    public AesStepConfig(@JsonProperty("key_constant") String keyConstant, @JsonProperty("iv_constant") String ivConstant, @JsonProperty("key_bit") int keyBit) {
+    public AesStepConfig(@JsonProperty("key_constant") String keyConstant,
+                         @JsonProperty("iv_constant") String ivConstant,
+                         @JsonProperty("key_bit") int keyBit) {
+
         this.keyConstant = keyConstant;
         this.ivConstant = ivConstant;
         this.keyBit = keyBit;

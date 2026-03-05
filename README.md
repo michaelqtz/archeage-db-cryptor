@@ -22,11 +22,11 @@ Decryption support for 3 encryption types:
 
 - `v2` - Game versions 2.x up to 3.0.0.3
 - `v3` - Game versions starting from 3.1.x
-- `v4` - AAFree game versions
+- `v4` - AAFree & AAClassic game versions
 
 Encryption support: Currently **only** `v2`.
 
-AES key calculation - Derive AES keys when correct key/IV constants are provided.
+AES key calculation - Derive AES keys bit when correct key/IV constants are provided.
 
 RSA key formatting - Format and clean up RSA keys from `rsa_keys.txt` file.
 
@@ -79,7 +79,7 @@ where:
 - `aes_first_stage.key_bit` - AES key bit (128, 192, 256)
 - `cipher_mode` - cipher mode
 
-## Cipher mode
+### Cipher mode
 
 - `DECRYPT` - uses for decryption
 - `ENCRYPT` - uses for encryption
@@ -90,7 +90,7 @@ where:
 {
   "provider": "Kakao",
   "version": "10.8.1.0",
-  "aafree": false,
+  "pirate": false,
   "aes_first_stage": {
     "key_constant": "HEX",
     "iv_constant": "HEX",
@@ -115,9 +115,9 @@ where:
 
 where:
 
-- `aafree` - is AAFree client (required for AAFree DB versions, optionals for officials)
-- `rsa.d` - private exponent in HEX
-- `rsa.n` - modulus in HEX
+- `pirate` - is AAFree or AAClassic client (required for AAFree & AAClassic versions, optionals for officials)
+- `rsa.d` - private exponent in HEX (`"00"` if pirate)
+- `rsa.n` - modulus in HEX (`"00"` if pirate)
 - `rsa.constant` - 8 length HEX
 - `rsa.parts` - RSA parts
 - `rsa.c_length` - 2 length HEX encrypted data length

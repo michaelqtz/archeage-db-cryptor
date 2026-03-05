@@ -2,15 +2,16 @@ package aaemu.tools;
 
 import static aaemu.tools.enums.CipherMode.DECRYPT;
 import static aaemu.tools.enums.CipherMode.ENCRYPT;
-import static aaemu.tools.util.ConstantsUtils.DB_SQLITE;
+import static aaemu.tools.enums.CipherVersion._2;
+import static aaemu.tools.enums.CipherVersion._4;
 import static aaemu.tools.util.ConstantsUtils.DB_SQLITE_NEW;
 import static aaemu.tools.util.ConstantsUtils.DB_ZIP;
-import static aaemu.tools.util.ConstantsUtils.GAME0PK_BYTES;
 import static aaemu.tools.util.HexUtils.toHex;
+import static aaemu.tools.util.ZipUtils.isValidZip;
 
 import java.io.IOException;
 import java.math.BigInteger;
-import java.util.Arrays;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Objects;
 import java.util.Scanner;
@@ -18,18 +19,18 @@ import java.util.Scanner;
 import aaemu.tools.config.AesStepConfig;
 import aaemu.tools.config.ConfigProperties;
 import aaemu.tools.config.RsaStepConfig;
-import aaemu.tools.enums.AesKeyBit;
 import aaemu.tools.enums.CipherMode;
 import aaemu.tools.enums.CipherVersion;
+import aaemu.tools.service.AesKeysBitService;
 import aaemu.tools.service.AesService;
 import aaemu.tools.service.CryptoService;
 import aaemu.tools.service.FileService;
+import aaemu.tools.service.impl.AesKeysBitServiceImpl;
 import aaemu.tools.service.impl.AesServiceImpl;
 import aaemu.tools.service.impl.CryptoServiceImpl;
 import aaemu.tools.service.impl.FileServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * @author Shannon
@@ -38,7 +39,8 @@ public class Application {
     private static final ObjectMapper objectMapper = JsonMapper.builder().build();
     private static final FileService fileService = new FileServiceImpl(objectMapper);
     private static final AesService aesService = new AesServiceImpl();
-    private static final CryptoService cryptoService = new CryptoServiceImpl(aesService);
+    private static final CryptoService cryptoService = new CryptoServiceImpl(fileService, aesService);
+    private static final AesKeysBitService aesKeysBitService = new AesKeysBitServiceImpl(fileService, cryptoService);
     private static final RsaKeyFormater rsaKeyFormater = new RsaKeyFormater(fileService);
 
     public static void main(String[] args) throws IOException {
@@ -94,34 +96,17 @@ public class Application {
         printRsaKeysInfo(properties);
 
         if (properties.getCipherMode().isDecrypt()) {
-            byte[] decryptedData = decrypt(properties);
-            fileService.writeFile(DB_ZIP, decryptedData);
+            ByteBuffer buffer = cryptoService.decrypt(properties);
+
+            if (isValidZip(buffer)) {
+                fileService.writeFile(DB_ZIP, buffer);
+            } else {
+                System.err.println("Invalid config or db file");
+            }
         } else {
-            byte[] encryptedData = encrypt(properties);
-            fileService.writeFile(DB_SQLITE_NEW, encryptedData);
+            ByteBuffer buffer = cryptoService.encrypt(properties);
+            fileService.writeFile(DB_SQLITE_NEW, buffer);
         }
-    }
-
-    private static byte[] decrypt(ConfigProperties properties) throws Exception {
-        CipherVersion cipherVersion = properties.getCipherVersion();
-        byte[] encryptedData = fileService.readFile(DB_SQLITE);
-
-        return switch (cipherVersion) {
-            case _2 -> cryptoService.decryptV2(properties, encryptedData);
-            case _3 -> cryptoService.decryptV3(properties, encryptedData);
-            case UNKNOWN -> new byte[0];
-        };
-    }
-
-    private static byte[] encrypt(ConfigProperties properties) throws Exception {
-        CipherVersion cipherVersion = properties.getCipherVersion();
-        byte[] decryptedData = fileService.readFile(DB_ZIP);
-
-        return switch (cipherVersion) {
-            case _2 -> cryptoService.encryptV2(properties, decryptedData);
-            case _3 -> cryptoService.encryptV3(properties, decryptedData);
-            case UNKNOWN -> new byte[0];
-        };
     }
 
     private static void calculateKeysBit(Scanner scanner) throws Exception {
@@ -137,85 +122,7 @@ public class Application {
         ConfigProperties properties = selectConfig(configProperties, scanner);
         properties.setCipherMode(DECRYPT);
 
-        System.out.println("\n=== Analysis of AES key bit combinations ===");
-        System.out.println("┌─────────────┬─────────────┬──────────┐");
-        System.out.println("│ AES-1 (bit) │ AES-2 (bit) │  Result  │");
-        System.out.println("├─────────────┼─────────────┼──────────┤");
-
-        boolean found = false;
-        int firstKeyBit = 0;
-        int secondKeyBit = 0;
-
-        for (AesKeyBit first : AesKeyBit.values()) {
-            for (AesKeyBit second : AesKeyBit.values()) {
-                properties.getAesFirstStage().updateKey(first.getBit());
-                properties.getAesSecondStage().updateKey(second.getBit());
-                String statusSymbol;
-
-                try {
-                    if (isValidKeysBit(properties)) {
-                        statusSymbol = "+";
-                        found = true;
-                    } else {
-                        statusSymbol = "-";
-                    }
-                } catch (Exception exception) {
-                    statusSymbol = "!";
-                }
-
-                System.out.printf("│     %3d     │     %3d     │    %s     │%n", first.getBit(), second.getBit(), statusSymbol);
-
-                if (found) {
-                    firstKeyBit = first.getBit();
-                    secondKeyBit = second.getBit();
-
-                    break;
-                }
-            }
-
-            if (found) {
-                break;
-            }
-        }
-
-        System.out.println("└─────────────┴─────────────┴──────────┘");
-
-        if (!found) {
-            System.out.println("Bit length of AES keys hasn't been detected");
-            System.out.printf("Check config constants and %s%n", DB_SQLITE);
-
-            return;
-        }
-        System.out.println("\n=== Overwrite config file ===");
-        System.out.print(" Enter y/n: ");
-
-        boolean overwrite = scanner.next().equalsIgnoreCase("y");
-
-        if (overwrite) {
-            overwriteJsonConfig(properties, firstKeyBit, secondKeyBit);
-        }
-    }
-
-    private static boolean isValidKeysBit(ConfigProperties properties) throws Exception {
-        byte[] decryptedData = decrypt(properties);
-
-        if (decryptedData.length <= 30 + GAME0PK_BYTES.length) {
-            return false;
-        }
-        byte[] copy = new byte[GAME0PK_BYTES.length];
-        System.arraycopy(decryptedData, 30, copy, 0, copy.length);
-
-        return Arrays.equals(copy, GAME0PK_BYTES);
-    }
-
-    private static void overwriteJsonConfig(ConfigProperties properties, int firstKeySize, int secondKeySize) throws IOException {
-        ObjectNode jsonConfig = fileService.readJson(properties.getPath());
-        ObjectNode aesStage = (ObjectNode) jsonConfig.get("aes_first_stage");
-        aesStage.put("key_bit", firstKeySize);
-        aesStage = (ObjectNode) jsonConfig.get("aes_second_stage");
-        aesStage.put("key_bit", secondKeySize);
-
-        fileService.writeFile(properties.getPath().toString(), jsonConfig.toPrettyString().getBytes());
+        aesKeysBitService.calculateKeysBit(properties, scanner);
     }
 
     private static void printFunctionSelection() {
@@ -262,9 +169,10 @@ public class Application {
         System.out.println("├─────┼─────────┤");
         System.out.println("│  1  │ DECRYPT │");
 
+        CipherVersion cipherVersion = properties.getCipherVersion();
         boolean canEncrypt = false;
 
-        if (properties.getCipherVersion().equals(CipherVersion._2)) {
+        if (cipherVersion.equals(_2) || cipherVersion.equals(_4)) {
             canEncrypt = true;
 
             System.out.println("│  2  │ ENCRYPT │");
