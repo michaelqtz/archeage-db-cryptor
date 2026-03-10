@@ -22,6 +22,8 @@ public class ConstantsUtils {
     public static final String RSA_KEYS_FILE_NAME = "rsa_keys.txt";
     public static final String CONFIG_PROPERTIES_FILE_NAME = "config.json";
     public static final String CONFIG_PROPERTIES_FILE_EXTENSION = "*.json";
+    public static final String DB_FUNCTION_TREE_FILE = "db_function_tree.txt";
+    public static final String DB_SCHEMA_FILE = "db_schema.json";
     public static final String DB_SQLITE = "compact.sqlite";
     public static final String DB_SQLITE_NEW = "compact_new.sqlite";
     public static final String DB_ZIP = "compact.zip";

@@ -25,10 +25,12 @@ import aaemu.tools.service.AesKeysBitService;
 import aaemu.tools.service.AesService;
 import aaemu.tools.service.CryptoService;
 import aaemu.tools.service.FileService;
+import aaemu.tools.service.SqliteService;
 import aaemu.tools.service.impl.AesKeysBitServiceImpl;
 import aaemu.tools.service.impl.AesServiceImpl;
 import aaemu.tools.service.impl.CryptoServiceImpl;
 import aaemu.tools.service.impl.FileServiceImpl;
+import aaemu.tools.service.impl.SqliteServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 
@@ -42,6 +44,7 @@ public class Application {
     private static final CryptoService cryptoService = new CryptoServiceImpl(fileService, aesService);
     private static final AesKeysBitService aesKeysBitService = new AesKeysBitServiceImpl(fileService, cryptoService);
     private static final RsaKeyFormater rsaKeyFormater = new RsaKeyFormater(fileService);
+    private static final SqliteService SQLITE_SERVICE = new SqliteServiceImpl(fileService);
 
     public static void main(String[] args) throws IOException {
         try {
@@ -54,13 +57,14 @@ public class Application {
                 case 1 -> cipher(scanner);
                 case 2 -> calculateKeysBit(scanner);
                 case 3 -> rsaKeyFormater.formatRsaKeys(4);
+                case 4 -> SQLITE_SERVICE.createSchema();
             }
 
             System.out.println("\nPress any to exit");
 
             System.in.read(new byte[2]);
         } catch (Exception exception) {
-            System.err.printf("%nError: %s%n%n", exception.fillInStackTrace());
+            exception.printStackTrace();
             System.out.println("Press any to exit");
 
             System.in.read(new byte[2]);
@@ -133,6 +137,7 @@ public class Application {
         System.out.println("│ 1 │ Cipher                 │");
         System.out.println("│ 2 │ Calculate AES keys bit │");
         System.out.println("│ 3 │ Format RSA keys        │");
+        System.out.println("│ 4 │ Create DB schema       │");
         System.out.println("└───┴────────────────────────┘");
         System.out.print(" Enter №: ");
     }

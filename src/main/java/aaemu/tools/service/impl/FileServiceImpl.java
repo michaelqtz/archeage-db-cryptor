@@ -2,6 +2,8 @@ package aaemu.tools.service.impl;
 
 import static aaemu.tools.util.ConstantsUtils.CONFIG_PROPERTIES_FILE_EXTENSION;
 import static aaemu.tools.util.ConstantsUtils.CONFIG_PROPERTIES_FILE_NAME;
+import static aaemu.tools.util.ConstantsUtils.DB_FUNCTION_TREE_FILE;
+import static aaemu.tools.util.ConstantsUtils.DB_SCHEMA_FILE;
 import static aaemu.tools.util.ConstantsUtils.ROOT_FOLDER;
 
 import java.io.IOException;
@@ -15,8 +17,10 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import aaemu.tools.config.ConfigProperties;
+import aaemu.tools.model.QueryInfo;
 import aaemu.tools.service.FileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -79,8 +83,24 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    public void writeJson(String name, Object object) throws IOException {
+        Path path = buildFilePath(name);
+        objectMapper.writeValue(path.toFile(), object);
+    }
+
+    @Override
     public ObjectNode readJson(Path path) throws IOException {
         return objectMapper.readValue(path.toFile(), ObjectNode.class);
+    }
+
+    @Override
+    public List<String> readFunctionsFile() throws IOException {
+        return readAllLines(DB_FUNCTION_TREE_FILE);
+    }
+
+    @Override
+    public void writeDbShema(Set<QueryInfo> queryInfos) throws IOException {
+        writeJson(DB_SCHEMA_FILE, queryInfos);
     }
 
     private static byte[] read(String name) throws IOException {
